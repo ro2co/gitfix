@@ -10,8 +10,12 @@ class PROperations:
     
     def __init__(self):
         """Initialize PR operations with default values."""
-        self.base_branch = "staging"  # Default target branch
+        self.base_branch = "staging"
         self.github_url = self._get_github_url()
+        # Initialize storage path with proper directory structure
+        self.storage_state_path = os.path.join(os.path.expanduser("~"), ".config", "gitfix", "github_state.json")
+        # Ensure the directory exists
+        os.makedirs(os.path.dirname(self.storage_state_path), exist_ok=True)
 
     def _parse_git_url(self, url: str) -> Tuple[str, str]:
         """
@@ -76,19 +80,41 @@ class PROperations:
 
     def create_pull_request(self, branch_name: str, title: str) -> None:
         """Create a pull request using browser automation."""
-        print(f"Opening PR page: {self.github_url}/new/choose...")
+        print(f"Opening PR page: {self.github_url}/compare...")
         
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=False)  # Set headless=True in production
-            page = browser.new_page()
+            browser = p.chromium.launch(
+                headless=False,
+                executable_path="/Users/v1wsfuhuan/Library/Caches/ms-playwright/chromium-1148/chrome-mac/Chromium.app/Contents/MacOS/Chromium"
+            )
+            
+            # Check if authentication state exists
+            if os.path.exists(self.storage_state_path):
+                print("Loading saved authentication state...")
+                context = browser.new_context(storage_state=self.storage_state_path)
+            else:
+                print("No saved authentication state found.")
+                context = browser.new_context()
+                print("Please login to GitHub in the opened browser.")
+                print("After login, the authentication will be saved for future use.")
+            
+            page = context.new_page()
             
             try:
                 # Navigate to the new PR page
-                compare_url = f"{self.github_url}/new/choose"
+                compare_url = f"{self.github_url}/compare"
                 page.goto(compare_url)
                 
                 print("Waiting for page to load...")
                 page.wait_for_selector("body")
+                
+                # If this is the first login, save the authentication state
+                if not os.path.exists(self.storage_state_path):
+                    print("Waiting for login... (Press Enter when done)")
+                    input()
+                    # Save authentication state
+                    context.storage_state(path=self.storage_state_path)
+                    print(f"Authentication state saved at {self.storage_state_path}")
                 
                 # Let the user handle the rest manually
                 print("Browser opened for PR creation. Please complete the process manually.")
