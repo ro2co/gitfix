@@ -1,5 +1,5 @@
 import re
-from playwright.sync_api import sync_playwright
+import requests
 import os
 import time
 from typing import Optional, Tuple
@@ -16,6 +16,16 @@ class PROperations:
         self.storage_state_path = os.path.join(os.path.expanduser("~"), ".config", "gitfix", "github_state.json")
         # Ensure the directory exists
         os.makedirs(os.path.dirname(self.storage_state_path), exist_ok=True)
+
+    def _get_github_token(self) -> str:
+        \"\"\"Get GitHub token from environment variable.\"\"\"
+        token = os.getenv('GITHUB_TOKEN')
+        if not token:
+            raise ValueError(
+                \"GITHUB_TOKEN environment variable not set. \"
+                \"Please set it with your GitHub personal access token.\"
+            )
+        return token
 
     def _parse_git_url(self, url: str) -> Tuple[str, str]:
         """
@@ -79,49 +89,38 @@ class PROperations:
             raise Exception(f"Failed to process GitHub URL: {str(e)}")
 
     def create_pull_request(self, branch_name: str, title: str) -> None:
-        """Create a pull request using browser automation."""
-        print(f"Opening PR page: {self.github_url}/compare...")
+        """
+        Create a pull request using GitHub API.
         
-        with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=False,
-                executable_path="/Users/v1wsfuhuan/Library/Caches/ms-playwright/chromium-1148/chrome-mac/Chromium.app/Contents/MacOS/Chromium"
-            )
+        Args:
+            branch_name: Name of the source branch
+            title: Title for the pull request
+        """
+        api_url = f"https://api.github.com/repos/{self.owner}/{self.repo}/pulls"
+        
+        headers = {
+            "Authorization": f"token {self.github_token}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+        
+        # PR data
+        data = {
+            "title": title,
+            "head": branch_name,
+            "base": self.base_branch,
+            "body": f"Created by gfix tool Merging from `{branch_name}` into `{self.base_branch}`"
+        }
+        
+        try:
+            print(f"Creating PR to merge '{branch_name}' into '{self.base_branch}'...")
+            response = requests.post(api_url, headers=headers, json=data)
+            response.raise_for_status()
             
-            # Check if authentication state exists
-            if os.path.exists(self.storage_state_path):
-                print("Loading saved authentication state...")
-                context = browser.new_context(storage_state=self.storage_state_path)
-            else:
-                print("No saved authentication state found.")
-                context = browser.new_context()
-                print("Please login to GitHub in the opened browser.")
-                print("After login, the authentication will be saved for future use.")
+            pr_data = response.json()
+            print(f"✓ Successfully created PR: {pr_data['html_url']}")
             
-            page = context.new_page()
-            
-            try:
-                # Navigate to the new PR page
-                compare_url = f"{self.github_url}/compare"
-                page.goto(compare_url)
-                
-                print("Waiting for page to load...")
-                page.wait_for_selector("body")
-                
-                # If this is the first login, save the authentication state
-                if not os.path.exists(self.storage_state_path):
-                    print("Waiting for login... (Press Enter when done)")
-                    input()
-                    # Save authentication state
-                    context.storage_state(path=self.storage_state_path)
-                    print(f"Authentication state saved at {self.storage_state_path}")
-                
-                # Let the user handle the rest manually
-                print("Browser opened for PR creation. Please complete the process manually.")
-                print("Press Enter when done...")
-                input()
-                
-            except Exception as e:
-                raise Exception(f"Failed to open PR page: {str(e)}")
-            finally:
-                browser.close()
+        except requests.exceptions.RequestException as e:
+            if response := getattr(e, 'response', None):
+                error_msg = response.json().get('message', str(e))
+                raise Exception(f"Failed to create PR: {error_msg}")
+            raise Exception(f"Failed to create PR: {str(e)}")
