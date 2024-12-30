@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "gitfix"
+version = "0.1.0"
+description = "Git automation tool for creating branches, commits, and PRs"
+authors = ["Your Name <your.email@example.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.8"
+playwright = "^1.41.0"
+
+[tool.poetry.scripts]
+gitfix = "gitfix.main:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
